@@ -161,7 +161,7 @@ function App() {
     let socket
 
     try {
-      socket = client.createSocket(false, false)
+      socket = client.createSocket(nakamaSSL, false)
       await socket.connect(session, true)
       console.log('Socket connected')
     } catch (error) {
