@@ -4,7 +4,6 @@ import './App.css'
 
 const initialBoard = ['', '', '', '', '', '', '', '', '']
 const nakamaHost = window.location.hostname || '127.0.0.1'
-const deviceStorageKey = 'tictactoe-device-id'
 
 function normalizeMark(mark) {
   if (mark === 'Y') {
@@ -14,19 +13,28 @@ function normalizeMark(mark) {
   return mark || ''
 }
 
-function getOrCreateDeviceId() {
-  const savedDeviceId = window.localStorage.getItem(deviceStorageKey)
-  if (savedDeviceId) {
-    return savedDeviceId
+function buildAccountEmail(username) {
+  const normalized = username.trim().toLowerCase().replace(/[^a-z0-9._-]/g, '')
+  return `${normalized}@tictactoe.com`
+}
+
+async function getErrorMessage(error, fallbackMessage) {
+  if (error && typeof error.json === 'function') {
+    try {
+      const payload = await error.json()
+      if (payload?.message) {
+        return payload.message
+      }
+    } catch {
+      return fallbackMessage
+    }
   }
 
-  const nextDeviceId =
-    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : `device-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  if (error?.message) {
+    return error.message
+  }
 
-  window.localStorage.setItem(deviceStorageKey, nextDeviceId)
-  return nextDeviceId
+  return fallbackMessage
 }
 
 function collectPlayerNames(match, fallbackUsername) {
@@ -40,6 +48,11 @@ function collectPlayerNames(match, fallbackUsername) {
   })
 
   return nextNames
+}
+
+async function connectAuthenticatedUser({ client, username, password, createAccount }) {
+  const email = buildAccountEmail(username)
+  return client.authenticateEmail(email, password, createAccount, username)
 }
 
 function App() {
@@ -58,6 +71,7 @@ function App() {
   const [playerNames, setPlayerNames] = useState({})
   const [resultData, setResultData] = useState(null)
   const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
   const [searchStatus, setSearchStatus] = useState('')
   const [ticket, setTicket] = useState('')
   const [flashMessage, setFlashMessage] = useState('')
@@ -141,40 +155,8 @@ function App() {
     }
   }
 
-  const handleLogin = async () => {
-    const trimmedUsername = username.trim()
-    if (!trimmedUsername) {
-      showFlashMessage('Please enter a username.')
-      return
-    }
-
-    setIsBusy(true)
-    setSearchStatus('')
-
-    let client
-    let session
+  const completeAuth = async (session, client, trimmedUsername) => {
     let socket
-
-    try {
-      client = new Client('defaultkey', nakamaHost, '7350', false, 7000, false)
-      console.log('Client created')
-    } catch (error) {
-      console.error('Client creation failed:', error)
-      showFlashMessage('Could not connect to Nakama. Check that it is running locally.')
-      setIsBusy(false)
-      return
-    }
-
-    try {
-      const deviceId = getOrCreateDeviceId()
-      session = await client.authenticateDevice(deviceId, true, trimmedUsername)
-      console.log('Session:', session)
-    } catch (error) {
-      console.error('Authentication failed:', error)
-      showFlashMessage('Could not connect to Nakama. Check that it is running locally.')
-      setIsBusy(false)
-      return
-    }
 
     try {
       socket = client.createSocket(false, false)
@@ -198,6 +180,118 @@ function App() {
     attachSocketHandlers(socket)
     setScreen('lobby')
     setIsBusy(false)
+  }
+
+  const createClient = () => {
+    return new Client('defaultkey', nakamaHost, '7350', false, 7000, false)
+  }
+
+  const handleLogin = async () => {
+    const trimmedUsername = username.trim()
+    if (!trimmedUsername) {
+      showFlashMessage('Please enter a username.')
+      return
+    }
+
+    if (!password.trim()) {
+      showFlashMessage('Please enter a password.')
+      return
+    }
+
+    if (password.trim().length < 8) {
+      showFlashMessage('Password must be at least 8 characters.')
+      return
+    }
+
+    setIsBusy(true)
+    setSearchStatus('')
+
+    let client
+    let session
+
+    try {
+      client = createClient()
+      console.log('Client created')
+    } catch (error) {
+      console.error('Client creation failed:', error)
+      showFlashMessage('Could not connect to Nakama. Check that it is running locally.')
+      setIsBusy(false)
+      return
+    }
+
+    try {
+      session = await connectAuthenticatedUser({
+        client,
+        username: trimmedUsername,
+        password,
+        createAccount: false,
+      })
+      console.log('Session:', session)
+    } catch (error) {
+      console.error('Authentication failed:', error)
+      showFlashMessage(await getErrorMessage(error, 'Login failed. Check your username and password.'))
+      setIsBusy(false)
+      return
+    }
+
+    await completeAuth(session, client, trimmedUsername)
+  }
+
+  const handleSignup = async () => {
+    const trimmedUsername = username.trim()
+    if (!trimmedUsername) {
+      showFlashMessage('Please enter a username.')
+      return
+    }
+
+    if (!password.trim()) {
+      showFlashMessage('Please enter a password.')
+      return
+    }
+
+    if (password.trim().length < 8) {
+      showFlashMessage('Password must be at least 8 characters.')
+      return
+    }
+
+    setIsBusy(true)
+    setSearchStatus('')
+
+    let client
+    let session
+
+    try {
+      client = createClient()
+      console.log('Client created')
+    } catch (error) {
+      console.error('Client creation failed:', error)
+      showFlashMessage('Could not connect to Nakama. Check that it is running locally.')
+      setIsBusy(false)
+      return
+    }
+
+    try {
+      session = await connectAuthenticatedUser({
+        client,
+        username: trimmedUsername,
+        password,
+        createAccount: true,
+      })
+      console.log('Session:', session)
+
+      if (!session.created) {
+        showFlashMessage('Username already exists. Please choose another one.')
+        setIsBusy(false)
+        return
+      }
+    } catch (error) {
+      console.error('Signup failed:', error)
+      showFlashMessage(await getErrorMessage(error, 'Sign up failed. Username may already exist.'))
+      setIsBusy(false)
+      return
+    }
+
+    await completeAuth(session, client, trimmedUsername)
   }
 
   const handleFindMatch = async () => {
@@ -282,9 +376,9 @@ function App() {
       <section className="app-card">
         {screen === 'login' && (
           <div className="panel panel-center">
-            <p className="eyebrow">Multiplayer Nakama Demo</p>
+            <p className="eyebrow">Log In</p>
             <h1>Tic-Tac-Toe</h1>
-            <p className="panel-copy">Connect with a username and jump into a live match.</p>
+            <p className="panel-copy">Log in with your saved account to continue playing.</p>
 
             <label className="input-group" htmlFor="username">
               <span>Enter your username</span>
@@ -304,9 +398,103 @@ function App() {
               />
             </label>
 
+            <label className="input-group" htmlFor="password">
+              <span>Enter your password</span>
+              <input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    handleLogin()
+                  }
+                }}
+                placeholder="Password"
+                maxLength={64}
+                autoComplete="current-password"
+              />
+            </label>
+
             <button className="primary-button" onClick={handleLogin} disabled={isBusy}>
-              {isBusy ? 'Connecting...' : 'Play'}
+              {isBusy ? 'Connecting...' : 'Login'}
             </button>
+
+            <p className="status-text">
+              New here?{' '}
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => {
+                  setPassword('')
+                  setScreen('signup')
+                }}
+              >
+                Create account
+              </button>
+            </p>
+          </div>
+        )}
+
+        {screen === 'signup' && (
+          <div className="panel panel-center">
+            <p className="eyebrow">Create Account</p>
+            <h1>Sign Up</h1>
+            <p className="panel-copy">Choose a unique username and password. Your account will be stored in Nakama.</p>
+
+            <label className="input-group" htmlFor="signup-username">
+              <span>Choose a username</span>
+              <input
+                id="signup-username"
+                type="text"
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    handleSignup()
+                  }
+                }}
+                placeholder="PlayerOne"
+                maxLength={24}
+                autoComplete="username"
+              />
+            </label>
+
+            <label className="input-group" htmlFor="signup-password">
+              <span>Choose a password</span>
+              <input
+                id="signup-password"
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    handleSignup()
+                  }
+                }}
+                placeholder="Password"
+                maxLength={64}
+                autoComplete="new-password"
+              />
+            </label>
+
+            <button className="primary-button" onClick={handleSignup} disabled={isBusy}>
+              {isBusy ? 'Creating Account...' : 'Sign Up'}
+            </button>
+
+            <p className="status-text">
+              Already have an account?{' '}
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => {
+                  setPassword('')
+                  setScreen('login')
+                }}
+              >
+                Log in
+              </button>
+            </p>
           </div>
         )}
 
