@@ -3,7 +3,9 @@ import { Client } from '@heroiclabs/nakama-js'
 import './App.css'
 
 const initialBoard = ['', '', '', '', '', '', '', '', '']
-const nakamaHost = window.location.hostname || '127.0.0.1'
+const nakamaHost = import.meta.env.VITE_NAKAMA_HOST || '127.0.0.1'
+const nakamaPort = import.meta.env.VITE_NAKAMA_PORT || '7350'
+const nakamaSSL = import.meta.env.VITE_NAKAMA_USE_SSL === 'true'
 
 function normalizeMark(mark) {
   if (mark === 'Y') {
@@ -183,7 +185,7 @@ function App() {
   }
 
   const createClient = () => {
-    return new Client('defaultkey', nakamaHost, '7350', false, 7000, false)
+    return new Client('defaultkey', nakamaHost, nakamaPort, nakamaSSL, 7000, false)
   }
 
   const handleLogin = async () => {
