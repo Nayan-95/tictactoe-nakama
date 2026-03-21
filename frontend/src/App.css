@@ -93,6 +93,7 @@ h1 {
   font-size: 1.8rem;
   font-weight: 700;
   line-height: 1.2;
+  color: var(--text);
 }
 
 .panel-copy {
@@ -167,6 +168,20 @@ h1 {
   color: var(--muted);
   font-size: 0.85rem;
   text-align: center;
+}
+
+.text-button {
+  background: transparent;
+  border: none;
+  color: var(--teal);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  padding: 0;
+}
+
+.text-button:hover {
+  color: var(--teal-dark);
 }
 
 .subtle-text {
