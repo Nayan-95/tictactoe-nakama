@@ -13,8 +13,9 @@ import { Client } from "@heroiclabs/nakama-js";
 import { OpCode }  from "../types/game.js";
 
 export class NakamaService {
-  constructor(host, port, ssl, serverKey) {
-    this.client  = new Client(serverKey, host, port, ssl);
+  constructor(host, port, useSSL, serverKey) {
+    this.client  = new Client(serverKey, host, port, useSSL);
+    this.useSSL  = useSSL;
     this.session = null;
     this.socket  = null;
   }
@@ -32,8 +33,7 @@ export class NakamaService {
   async connectSocket(session, handlers) {
     if (this.socket) this.socket.disconnect(false);
 
-    var ssl     = this.client.ssl;
-    this.socket = this.client.createSocket(ssl, false);
+    this.socket = this.client.createSocket(this.useSSL, false);
 
     this.socket.ondisconnect = handlers.onDisconnect;
     this.socket.onerror      = handlers.onError;
