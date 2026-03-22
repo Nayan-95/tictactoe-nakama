@@ -147,21 +147,25 @@ function buildGameOverPayload(state, reason) {
 // Leaderboard Write Helper
 // ────────────────────────────────────────────────────────────────────────────
 
-function writeMatchResult(nk, logger, winnerId, loserId, isDraw, players) {
+function writeMatchResult(nk, logger, winnerId, loserId, isDraw, players, playerInfo) {
   try {
     if (isDraw) {
       for (var i = 0; i < players.length; i++) {
-        if (players[i] !== AI_PLAYER_ID) {
-          nk.leaderboardRecordWrite("ttt_draws", players[i], "", 1, 0, {});
+        var pid = players[i];
+        if (pid !== AI_PLAYER_ID) {
+          var uname = (playerInfo && playerInfo[pid]) || "";
+          nk.leaderboardRecordWrite("ttt_draws", pid, uname, 1, 0, {});
         }
       }
       return;
     }
     if (winnerId && winnerId !== AI_PLAYER_ID) {
-      nk.leaderboardRecordWrite("ttt_wins", winnerId, "", 1, 0, {});
+      var wname = (playerInfo && playerInfo[winnerId]) || "";
+      nk.leaderboardRecordWrite("ttt_wins", winnerId, wname, 1, 0, {});
     }
     if (loserId && loserId !== AI_PLAYER_ID) {
-      nk.leaderboardRecordWrite("ttt_losses", loserId, "", 1, 0, {});
+      var lname = (playerInfo && playerInfo[loserId]) || "";
+      nk.leaderboardRecordWrite("ttt_losses", loserId, lname, 1, 0, {});
     }
   } catch (e) {
     logger.error("Leaderboard write failed: " + e);
@@ -181,7 +185,7 @@ function resolveGameOver(state, dispatcher, nk, logger, reason) {
     ? playerIds.filter(function(p) { return p !== state.winner; })[0] || ""
     : "";
 
-  writeMatchResult(nk, logger, state.winner, loserId, state.isDraw, playerIds);
+  writeMatchResult(nk, logger, state.winner, loserId, state.isDraw, playerIds, state.playerInfo);
 
   var presenceList = Object.keys(state.presences).map(function(k) { return state.presences[k]; });
   if (presenceList.length > 0) {
@@ -435,7 +439,7 @@ function rpcCreatePrivateMatch(context, logger, nk, payload) {
   nk.storageWrite([{
     collection:      "private_matches",
     key:             code,
-    userId:          "",           // system record — readable by anyone who knows the key
+    userId:          '00000000-0000-0000-0000-000000000000',           // system record
     value:           { matchId: matchId },
     permissionRead:  2,            // public read
     permissionWrite: 1,            // owner write
@@ -456,7 +460,7 @@ function rpcJoinByCode(context, logger, nk, payload) {
     var records = nk.storageRead([{
       collection: "private_matches",
       key:        code,
-      userId:     "",   // matches the system-level write in rpcCreatePrivateMatch
+      userId:     '00000000-0000-0000-0000-000000000000',   // system user
     }]);
 
     if (!records || records.length === 0) {
@@ -482,7 +486,8 @@ function rpcCreateAiMatch(context, logger, nk, payload) {
 
 function rpcGetLeaderboard(context, logger, nk, payload) {
   try {
-    var result  = nk.leaderboardRecordsList("ttt_wins", [], 10, null, 0);
+    // Use null instead of [] to fetch all records (no ID filter)
+    var result  = nk.leaderboardRecordsList("ttt_wins", null, 10, null, 0);
     var records = (result.records || []).map(function(r) {
       return {
         ownerId:  r.ownerId,
@@ -531,7 +536,7 @@ function InitModule(context, logger, nk, initializer) {
   var leaderboards = ["ttt_wins", "ttt_losses", "ttt_draws"];
   for (var i = 0; i < leaderboards.length; i++) {
     try {
-      nk.leaderboardCreate(leaderboards[i], false, "desc", "incr", "", false);
+      nk.leaderboardCreate(leaderboards[i], false, "desc", "incr", "", null);
       logger.info("Leaderboard ready: " + leaderboards[i]);
     } catch (e) {
       logger.info("Leaderboard already exists: " + leaderboards[i]);

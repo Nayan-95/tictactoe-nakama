@@ -1,10 +1,8 @@
 import { useEffect } from "react";
 
 /**
- * Toast — transient notification at bottom-center of screen.
- * Props:
- *   message   {string}
- *   onDismiss {function}
+ * Toast — amber-tinted notification at bottom-center.
+ * Props unchanged: message, onDismiss
  */
 export default function Toast({ message, onDismiss }) {
   useEffect(function() {

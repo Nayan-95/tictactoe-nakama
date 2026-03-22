@@ -1,31 +1,19 @@
 /**
- * TurnTimer — progress bar with color-coded urgency states.
- * Props:
- *   timeLeft  {number}  seconds remaining
- *   totalTime {number}  max seconds (default 30)
- *   isMyTurn  {boolean}
+ * TurnTimer — compact bar.
+ * Props unchanged: timeLeft, totalTime, isMyTurn
+ * Uses: timer-bar, timer-track, timer-fill--safe/warn/danger, timer-count--safe/warn/danger
  */
 export default function TurnTimer({ timeLeft, totalTime = 30, isMyTurn }) {
   var pct = Math.max(0, Math.min(100, (timeLeft / totalTime) * 100));
-
-  var urgency = "timer--safe";
-  if (timeLeft <= 15) urgency = "timer--warn";
-  if (timeLeft <= 7)  urgency = "timer--danger";
+  var state = timeLeft <= 7 ? "danger" : timeLeft <= 15 ? "warn" : "safe";
 
   return (
-    <div id="turn-timer" className={"timer-bar " + urgency}>
-      <div className="timer-labels">
-        <span className="timer-label-left">
-          {isMyTurn ? "⚡ YOUR TURN" : "⏳ OPPONENT'S TURN"}
-        </span>
-        <span className="timer-label-right">{timeLeft}s</span>
-      </div>
+    <div id="turn-timer" className="timer-bar">
+      <span className="timer-label">{isMyTurn ? "YOU" : "OPP"}</span>
       <div className="timer-track">
-        <div
-          className="timer-fill"
-          style={{ width: pct + "%" }}
-        />
+        <div className={"timer-fill timer-fill--" + state} style={{ width: pct + "%" }} />
       </div>
+      <span className={"timer-count timer-count--" + state}>{timeLeft}s</span>
     </div>
   );
 }

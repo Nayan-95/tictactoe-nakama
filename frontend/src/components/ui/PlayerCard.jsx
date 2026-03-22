@@ -1,21 +1,19 @@
 /**
- * PlayerCard — shows a player's mark + name with active-turn glow.
- * Props:
- *   username  {string}
- *   mark      {string}   "X" or "O"
- *   isActive  {boolean}  true when it's this player's turn
- *   tag       {string}   label below name, e.g. "YOU" or "CPU"
+ * PlayerCard — vertical player column with mark circle.
+ * Props unchanged: username, mark, isActive, tag
+ * Visual: tall vertical card, mark circle on top, name + tag below.
  */
 export default function PlayerCard({ username, mark, isActive, tag }) {
+  var markClass = "mark-circle mark-circle--" + (mark || "x").toLowerCase();
+  var colClass  = "player-column" + (isActive ? " player-column--active" : "");
+
   return (
-    <div className={"player-card" + (isActive ? " player-card--active" : "")}>
-      <div className={"player-card__mark player-card__mark--" + (mark || "x").toLowerCase()}>
+    <div className={colClass}>
+      <div className={markClass}>
         {mark || "?"}
       </div>
-      <div className="player-card__info">
-        <span className="player-card__name">{username || "..."}</span>
-        {tag && <span className="player-card__tag">{tag}</span>}
-      </div>
+      <span className="player-col-name">{username || "..."}</span>
+      {tag && <span className="player-col-tag">{tag}</span>}
     </div>
   );
 }

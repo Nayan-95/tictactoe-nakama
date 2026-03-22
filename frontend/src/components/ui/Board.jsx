@@ -1,12 +1,7 @@
 /**
  * Board — 3×3 interactive game grid.
- * Props:
- *   board      {string[9]}   current cell values ("", "X", "O")
- *   winLine    {number[]|null} winning cell indices, or null
- *   myMark     {string}      "X" or "O"
- *   isMyTurn   {boolean}
- *   isActive   {boolean}     false disables all clicks (waiting / game over)
- *   onCellClick {function}   called with cell index (0–8)
+ * Props unchanged: board, winLine, myMark, isMyTurn, isActive, onCellClick
+ * Visual: bare floating grid using pixel-border box-shadow technique.
  */
 export default function Board({ board, winLine, myMark, isMyTurn, isActive, onCellClick }) {
   function cellClass(value, index) {
@@ -27,7 +22,6 @@ export default function Board({ board, winLine, myMark, isMyTurn, isActive, onCe
             id={"cell-" + index}
             type="button"
             className={cellClass(value, index)}
-            data-ghost={myMark}
             onClick={function() { if (isActive && isMyTurn && !value) onCellClick(index); }}
             disabled={!isActive || !isMyTurn || !!value}
             aria-label={"Cell " + (index + 1) + (value ? " " + value : "")}

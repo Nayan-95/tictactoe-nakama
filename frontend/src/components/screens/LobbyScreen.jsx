@@ -2,10 +2,6 @@ import { useState } from "react";
 import { useGameStore } from "../../store/useGameStore.js";
 import StatsGrid from "../ui/StatsGrid.jsx";
 
-/**
- * LobbyScreen — match selection hub.
- * Shows user header, stats, quick match, AI match, private room flows.
- */
 export default function LobbyScreen({ nakama }) {
   var store      = useGameStore();
   var user       = store.user;
@@ -26,123 +22,119 @@ export default function LobbyScreen({ nakama }) {
     if (joinCode.trim()) nakama.joinByCode(joinCode.trim());
   }
 
-  // ── Searching / waiting state ─────────────────────────────────────────────
+  function handleCopyCode() {
+    if (navigator.clipboard && inviteCode) {
+      navigator.clipboard.writeText(inviteCode);
+      if (store.showToast) store.showToast("Code copied!");
+    }
+  }
+
+  // Right panel content
+  var rightContent;
+
   if (isSearching) {
-    return (
-      <div className="screen screen--lobby">
-        <div className="card card--searching">
-          {inviteCode ? (
-            <>
-              <p className="search-label">PRIVATE ROOM CREATED</p>
-              <div className="invite-code-display">
-                <span className="invite-code-text">{inviteCode}</span>
-              </div>
-              <p className="search-hint">Share this code with your opponent</p>
-              <div className="dot-row">
-                <span className="dot" /><span className="dot" /><span className="dot" />
-              </div>
-              <p className="search-status">Awaiting opponent...</p>
-            </>
-          ) : (
-            <>
-              <div className="spinner search-spinner" />
-              <p className="search-status">Searching for opponent...</p>
-            </>
-          )}
-          <button id="cancel-search" className="btn btn--danger btn--sm" onClick={handleCancel}>
-            CANCEL
+    rightContent = (
+      <div className="lobby-searching">
+        {inviteCode ? (
+          <>
+            <div className="invite-code-box">
+              <span className="invite-code-label">ROOM CODE</span>
+              <div className="invite-code-value" onClick={handleCopyCode}>{inviteCode}</div>
+              <p className="invite-code-tap-hint">Tap to copy</p>
+            </div>
+            <p className="invite-code-hint">Share this code with a friend</p>
+            <div className="dot-row">
+              <span className="dot" /><span className="dot" /><span className="dot" />
+            </div>
+          </>
+        ) : (
+          <>
+            <span className="spinner spinner--lg" />
+            <span className="searching-label">FINDING OPPONENT...</span>
+          </>
+        )}
+        <button id="cancel-search" className="btn btn--ghost btn--sm" onClick={handleCancel}>
+          ✕ Cancel
+        </button>
+      </div>
+    );
+  } else {
+    rightContent = (
+      <>
+        <p className="lobby-action-btn__label" style={{ fontFamily: "var(--font-arcade)", fontSize: "var(--text-xs)", letterSpacing: "0.15em", color: "var(--text-dim)", marginBottom: "var(--space-xs)" }}>GAME MODES</p>
+
+        <div className="lobby-action-grid">
+          <button id="quick-match-btn" className="lobby-action-btn lobby-action-btn--primary" onClick={nakama.findMatch} touch-action="manipulation">
+            <span className="lobby-action-btn__icon">⚡</span>
+            <span className="lobby-action-btn__label">QUICK MATCH</span>
+          </button>
+          <button id="vs-bot-btn" className="lobby-action-btn" onClick={nakama.playVsBot}>
+            <span className="lobby-action-btn__icon">🤖</span>
+            <span className="lobby-action-btn__label">VS CPU</span>
+          </button>
+          <button id="create-room-btn" className="lobby-action-btn" onClick={nakama.createPrivateMatch}>
+            <span className="lobby-action-btn__icon">🔒</span>
+            <span className="lobby-action-btn__label">CREATE ROOM</span>
+          </button>
+          <button id="join-code-toggle" className="lobby-action-btn" onClick={function() { setShowJoinInput(!showJoinInput); setJoinCode(""); }}>
+            <span className="lobby-action-btn__icon">🎟</span>
+            <span className="lobby-action-btn__label">JOIN CODE</span>
           </button>
         </div>
-      </div>
+
+        {showJoinInput && (
+          <form id="join-code-form" className="join-code-expand" onSubmit={handleJoinByCode}>
+            <input
+              id="join-code-input"
+              className="field-input"
+              type="text"
+              value={joinCode}
+              onChange={function(e) { setJoinCode(e.target.value.toUpperCase()); }}
+              placeholder="ENTER CODE"
+              maxLength={6}
+              autoFocus
+            />
+            <button id="join-code-submit" type="submit" className="btn btn--amber">JOIN</button>
+          </form>
+        )}
+
+        <div className="lobby-leaderboard-row">
+          <button id="leaderboard-btn" className="btn btn--ghost lobby-leaderboard-btn" onClick={function() { store.setScreen("leaderboard"); }}>
+            <span>🏆 View Leaderboard</span><span>→</span>
+          </button>
+        </div>
+      </>
     );
   }
 
-  // ── Normal lobby ──────────────────────────────────────────────────────────
   return (
-    <div className="screen screen--lobby">
-      <div className="card card--lobby">
-        {/* Header */}
-        <div className="lobby-header">
-          <div className="lobby-avatar">{(user && user.username || "?")[0].toUpperCase()}</div>
-          <div className="lobby-user-info">
-            <span className="lobby-username">{user && user.username}</span>
-            <span className="lobby-online-badge">● ONLINE</span>
+    <div className="lobby-screen">
+      <div className="lobby-layout">
+
+        {/* LEFT — Player profile */}
+        <div className="lobby-panel">
+          <div className="lobby-profile">
+            <div className="lobby-avatar">{(user && user.username || "?")[0].toUpperCase()}</div>
+            <div className="lobby-user-info">
+              <div className="lobby-username">{user && user.username}</div>
+              <span className="lobby-online-pill">● ONLINE</span>
+            </div>
           </div>
-          <button id="logout-btn" className="btn btn--secondary btn--sm" onClick={nakama.logout}>
-            LOGOUT
-          </button>
+
+          <div className="divider-line" style={{ marginBottom: "var(--space-sm)" }} />
+
+          <StatsGrid wins={stats.wins} losses={stats.losses} draws={stats.draws} />
+
+          <div style={{ marginTop: "var(--space-md)" }}>
+            <button id="logout-btn" className="btn btn--ghost btn--sm btn--full" onClick={nakama.logout}>← Exit</button>
+          </div>
         </div>
 
-        <h1 className="lobby-title">⚡ ARENA</h1>
-
-        <StatsGrid wins={stats.wins} losses={stats.losses} draws={stats.draws} />
-
-        {/* Play buttons */}
-        <div className="lobby-actions">
-          <button
-            id="quick-match-btn"
-            className="btn btn--primary btn--full btn--lg"
-            onClick={nakama.findMatch}
-          >
-            ⚡ QUICK MATCH
-          </button>
-
-          <button
-            id="vs-bot-btn"
-            className="btn btn--secondary btn--full btn--lg"
-            onClick={nakama.playVsBot}
-          >
-            🤖 VS CPU BOT
-          </button>
+        {/* RIGHT — Actions */}
+        <div className="lobby-panel" style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
+          {rightContent}
         </div>
 
-        {/* Private room divider */}
-        <div className="divider"><span>── PRIVATE ROOM ──</span></div>
-
-        <div className="lobby-actions">
-          <button
-            id="create-room-btn"
-            className="btn btn--secondary btn--full"
-            onClick={nakama.createPrivateMatch}
-          >
-            🔒 CREATE PRIVATE ROOM
-          </button>
-
-          <button
-            id="join-code-toggle"
-            className="btn btn--secondary btn--full"
-            onClick={function() { setShowJoinInput(!showJoinInput); setJoinCode(""); }}
-          >
-            🎟 JOIN WITH CODE
-          </button>
-
-          {showJoinInput && (
-            <form id="join-code-form" className="join-code-form" onSubmit={handleJoinByCode}>
-              <input
-                id="join-code-input"
-                className="field-input"
-                type="text"
-                value={joinCode}
-                onChange={function(e) { setJoinCode(e.target.value.toUpperCase()); }}
-                placeholder="Enter 6-char code"
-                maxLength={6}
-                autoFocus
-              />
-              <button id="join-code-submit" type="submit" className="btn btn--primary">JOIN</button>
-            </form>
-          )}
-        </div>
-
-        {/* Leaderboard */}
-        <div className="divider"><span></span></div>
-
-        <button
-          id="leaderboard-btn"
-          className="btn btn--secondary btn--full"
-          onClick={function() { store.setScreen("leaderboard"); }}
-        >
-          🏆 LEADERBOARD
-        </button>
       </div>
     </div>
   );

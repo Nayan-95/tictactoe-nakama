@@ -1,15 +1,5 @@
 import Board from "../ui/Board.jsx";
 
-/**
- * GameOverModal — fixed overlay shown when a match ends.
- * Props:
- *   gameOver    {GameOverPayload}
- *   user        {AuthUser}
- *   stats       {PlayerStats}
- *   onRematch   {function}
- *   onLeaderboard {function}
- *   onMainMenu  {function}
- */
 export default function GameOverModal({ gameOver, user, stats, onRematch, onLeaderboard, onMainMenu }) {
   if (!gameOver) return null;
 
@@ -17,82 +7,77 @@ export default function GameOverModal({ gameOver, user, stats, onRematch, onLead
   var isDraw = !gameOver.winner;
   var reason = gameOver.reason || "";
 
-  var resultIcon, resultTitle, resultXp, resultColor, subMsg;
+  var resultIcon, resultTitle, resultXp, resultMod, subMsg;
 
   if (isDraw) {
-    resultIcon  = "🤝";
-    resultTitle = "STALEMATE";
-    resultXp    = "+50 XP";
-    resultColor = "modal--draw";
-    subMsg      = "Nobody cracked the grid this round.";
+    resultIcon  = "🤝";  resultTitle = "DRAW";
+    resultXp    = "+50 XP"; resultMod = "draw";
+    subMsg = "Nobody cracked the grid this round.";
   } else if (isWin) {
-    resultIcon  = "🎖";
-    resultTitle = "VICTORY";
-    resultXp    = "+200 XP";
-    resultColor = "modal--win";
-    if (reason === "timeout") {
-      subMsg = "Enemy ran out of time.";
-    } else if (reason === "opponent_left") {
-      subMsg = "Opponent disconnected.";
-    } else {
-      subMsg = "You placed " + (gameOver.winnerMark || "") + " to win.";
-    }
+    resultIcon  = "🎖";  resultTitle = "YOU WIN";
+    resultXp    = "+200 XP"; resultMod = "win";
+    subMsg = reason === "timeout" ? "Enemy ran out of time."
+           : reason === "opponent_left" ? "Opponent disconnected."
+           : "You placed " + (gameOver.winnerMark || "") + " to win.";
   } else {
-    resultIcon  = "💀";
-    resultTitle = "FLATLINED";
-    resultXp    = "-100 XP";
-    resultColor = "modal--loss";
-    if (reason === "timeout") {
-      subMsg = "You ran out of time.";
-    } else if (reason === "opponent_left") {
-      subMsg = "Opponent disconnected.";
-    } else {
-      subMsg = "Enemy placed " + (gameOver.winnerMark || "") + " to win.";
-    }
+    resultIcon  = "💀";  resultTitle = "GAME OVER";
+    resultXp    = "-100 XP"; resultMod = "loss";
+    subMsg = reason === "timeout" ? "You ran out of time."
+           : reason === "opponent_left" ? "Opponent disconnected."
+           : "Enemy placed " + (gameOver.winnerMark || "") + " to win.";
   }
 
   var myMark = user && gameOver.marks && gameOver.marks[user.id] ? gameOver.marks[user.id] : "";
 
   return (
-    <div id="game-over-modal" className="modal-overlay" role="dialog" aria-modal="true">
-      <div className={"modal-card " + resultColor}>
-        <div className="modal-icon">{resultIcon}</div>
-        <h2 className="modal-title">{resultTitle}</h2>
-        <p className="modal-sub">{subMsg}</p>
-        <div className="modal-xp">{resultXp}</div>
+    <div id="game-over-modal" className="game-over-overlay" role="dialog" aria-modal="true">
+      <div className={"game-over-panel game-over-panel--" + resultMod}>
+        <div className="game-over-panel-inner">
 
-        {/* Mini read-only board */}
-        <div className="modal-board">
-          <Board
-            board={gameOver.board || ["","","","","","","","",""]}
-            winLine={gameOver.winLine || null}
-            myMark={myMark}
-            isMyTurn={false}
-            isActive={false}
-            onCellClick={function() {}}
-          />
-        </div>
+          <div className="result-icon">{resultIcon}</div>
+          <div className={"result-title result-title--" + resultMod}>{resultTitle}</div>
+          <p className="result-reason">{subMsg}</p>
+          <div className={"xp-badge xp-badge--" + resultMod}>{resultXp}</div>
 
-        {/* Stats row */}
-        <div className="modal-stats">
-          <div className="modal-stat modal-stat--win">
-            <span className="modal-stat__num">{stats ? stats.wins : 0}</span>
-            <span className="modal-stat__lbl">W</span>
-          </div>
-          <div className="modal-stat modal-stat--loss">
-            <span className="modal-stat__num">{stats ? stats.losses : 0}</span>
-            <span className="modal-stat__lbl">L</span>
-          </div>
-          <div className="modal-stat modal-stat--draw">
-            <span className="modal-stat__num">{stats ? stats.draws : 0}</span>
-            <span className="modal-stat__lbl">D</span>
-          </div>
-        </div>
+          <div className="divider-line" style={{ width: "100%" }} />
 
-        <div className="modal-actions">
-          <button id="modal-rematch"      className="btn btn--primary"   onClick={onRematch}>REMATCH</button>
-          <button id="modal-leaderboard"  className="btn btn--secondary" onClick={onLeaderboard}>LEADERBOARD</button>
-          <button id="modal-main-menu"    className="btn btn--danger"    onClick={onMainMenu}>MAIN MENU</button>
+          {/* Mini board */}
+          <div className="result-mini-board">
+            <Board
+              board={gameOver.board || ["","","","","","","","",""]}
+              winLine={gameOver.winLine || null}
+              myMark={myMark}
+              isMyTurn={false}
+              isActive={false}
+              onCellClick={function() {}}
+            />
+          </div>
+
+          <div className="divider-line" style={{ width: "100%" }} />
+
+          {/* Stats */}
+          <div className="result-stats">
+            <div className="result-stat result-stat--win">
+              <span className="result-stat__lbl">WINS</span>
+              <span className="result-stat__num">{stats ? stats.wins : 0}</span>
+            </div>
+            <div className="result-stat result-stat--loss">
+              <span className="result-stat__lbl">LOSSES</span>
+              <span className="result-stat__num">{stats ? stats.losses : 0}</span>
+            </div>
+            <div className="result-stat result-stat--draw">
+              <span className="result-stat__lbl">DRAWS</span>
+              <span className="result-stat__num">{stats ? stats.draws : 0}</span>
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="result-actions">
+            <button id="modal-rematch"     className="btn btn--amber btn--full"   onClick={onRematch}>REMATCH</button>
+            <button id="modal-leaderboard" className="btn btn--outline btn--full" onClick={onLeaderboard}>LEADERBOARD</button>
+            <button id="modal-main-menu"   className="btn btn--ghost btn--full"   onClick={onMainMenu}>MAIN MENU</button>
+          </div>
+
         </div>
       </div>
     </div>

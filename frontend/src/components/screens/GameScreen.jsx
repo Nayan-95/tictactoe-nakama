@@ -1,13 +1,9 @@
-import { useGameStore }   from "../../store/useGameStore.js";
-import Board              from "../ui/Board.jsx";
-import TurnTimer          from "../ui/TurnTimer.jsx";
-import PlayerCard         from "../ui/PlayerCard.jsx";
-import GameOverModal      from "../ui/GameOverModal.jsx";
+import { useGameStore }  from "../../store/useGameStore.js";
+import Board             from "../ui/Board.jsx";
+import TurnTimer         from "../ui/TurnTimer.jsx";
+import PlayerCard        from "../ui/PlayerCard.jsx";
+import GameOverModal     from "../ui/GameOverModal.jsx";
 
-/**
- * GameScreen — active match view.
- * All state comes from useGameStore. No local game logic.
- */
 export default function GameScreen({ nakama }) {
   var store        = useGameStore();
   var user         = store.user;
@@ -17,30 +13,27 @@ export default function GameScreen({ nakama }) {
   var inviteCode   = store.inviteCode;
   var stats        = store.stats;
 
-  // Derived values
-  var board    = gameState ? gameState.board   : ["","","","","","","","",""];
-  var marks    = gameState ? gameState.marks   : {};
-  var players  = gameState ? gameState.players : [];
-  var turn     = gameState ? gameState.turn    : "";
+  var TURN_SECONDS = 30;
+
+  var board     = gameState ? gameState.board   : ["","","","","","","","",""];
+  var marks     = gameState ? gameState.marks   : {};
+  var players   = gameState ? gameState.players : [];
+  var turn      = gameState ? gameState.turn    : "";
   var isAiMatch = gameState ? gameState.isAiMatch : false;
 
-  var myId       = user ? user.id : "";
-  var myMark     = marks[myId] || "";
-  var opponentId = players.find(function(p) { return p !== myId; }) || "";
-
-  // Infer opponent info from playerInfo if available, else fallback
-  var playerInfo = gameState ? gameState.playerInfo : {};
-
+  var myId         = user ? user.id : "";
+  var myMark       = marks[myId] || "";
+  var opponentId   = players.find(function(p) { return p !== myId; }) || "";
+  var playerInfo   = gameState ? gameState.playerInfo : {};
   var opponentName = playerInfo[opponentId] || (opponentId ? "Opponent" : "...");
   var myName       = playerInfo[myId] || (user && user.username) || "You";
   var opponentMark = marks[opponentId] || "";
 
-  var isMyTurn   = turn === myId;
+  var isMyTurn      = turn === myId;
   var hasTwoPlayers = players.length >= 2;
-  var isActive   = hasTwoPlayers && !gameOver && !(gameState && gameState.gameOver);
-
-  var timeLeft = timerPayload ? timerPayload.timeLeft : TURN_SECONDS;
-  var TURN_SECONDS = 30;
+  var isActive      = hasTwoPlayers && !gameOver && !(gameState && gameState.gameOver);
+  var isWaiting     = !hasTwoPlayers;
+  var timeLeft      = timerPayload ? timerPayload.timeLeft : TURN_SECONDS;
 
   function handleAbandon() {
     nakama.leaveMatch().then(function() {
@@ -48,99 +41,115 @@ export default function GameScreen({ nakama }) {
       store.setScreen("lobby");
     });
   }
+  function handleRematch()     { store.setGameOver(null); store.setScreen("lobby"); setTimeout(function() { nakama.findMatch(); }, 100); }
+  function handleLeaderboard() { store.setGameOver(null); store.setScreen("leaderboard"); }
+  function handleMainMenu()    { store.setGameOver(null); store.setScreen("lobby"); }
 
-  function handleRematch() {
-    store.setGameOver(null);
-    store.setScreen("lobby");
-    // Trigger find match automatically for rematch
-    setTimeout(function() { nakama.findMatch(); }, 100);
+  function handleCopyCode() {
+    if (navigator.clipboard && inviteCode) {
+      navigator.clipboard.writeText(inviteCode);
+    }
   }
 
-  function handleLeaderboard() {
-    store.setGameOver(null);
-    store.setScreen("leaderboard");
-  }
-
-  function handleMainMenu() {
-    store.setGameOver(null);
-    store.setScreen("lobby");
-  }
+  // Turn pill class
+  var pillClass = isMyTurn && isActive ? "game-turn-pill game-turn-pill--your-turn" : "game-turn-pill game-turn-pill--waiting";
 
   return (
-    <div className="screen screen--game">
-      <div className="game-container">
+    <div className="game-screen">
 
-        {/* Player header */}
-        <div className="game-header">
-          <PlayerCard
-            username={myName}
-            mark={myMark}
-            isActive={isMyTurn && hasTwoPlayers}
-            tag="YOU"
-          />
-
-          <div className="game-center-status">
-            {hasTwoPlayers ? (
-              isMyTurn ? (
-                <span className="turn-indicator turn-indicator--mine">▶ YOUR MOVE</span>
-              ) : (
-                <span className="turn-indicator turn-indicator--opponent">⏳ WAITING</span>
-              )
-            ) : (
-              <div className="waiting-dots">
-                <span className="dot" /><span className="dot" /><span className="dot" />
-                <p className="waiting-label">Awaiting opponent...</p>
-              </div>
-            )}
-          </div>
-
-          <PlayerCard
-            username={opponentName}
-            mark={opponentMark}
-            isActive={!isMyTurn && hasTwoPlayers}
-            tag={isAiMatch ? "CPU" : undefined}
-          />
+      {/* Mobile: horizontal chip bar — hidden on desktop via CSS */}
+      <div className="game-players-bar">
+        <div className={"player-chip" + (isMyTurn && isActive ? " player-chip--active-" + (myMark || "x").toLowerCase() : "")}>
+          <span className={"player-chip-mark player-chip-mark--" + (myMark || "x").toLowerCase()}>{myMark || "?"}</span>
+          <span className="player-chip-name">{myName}</span>
+          <span className="player-chip-tag">YOU</span>
         </div>
+        <span className="game-vs">VS</span>
+        <div className={"player-chip" + (!isMyTurn && isActive ? " player-chip--active-" + (opponentMark || "o").toLowerCase() : "")}>
+          <span className={"player-chip-mark player-chip-mark--" + (opponentMark || "o").toLowerCase()}>{opponentMark || "?"}</span>
+          <span className="player-chip-name">{opponentName}</span>
+          {isAiMatch && <span className="player-chip-tag">CPU</span>}
+        </div>
+      </div>
 
-        {/* Invite code banner — only visible before opponent joins */}
-        {inviteCode && !hasTwoPlayers && (
-          <div id="invite-code-banner" className="invite-banner">
-            <span className="invite-banner__label">ROOM CODE</span>
-            <span className="invite-banner__code">{inviteCode}</span>
-            <span className="invite-banner__hint">Share with your opponent</span>
-          </div>
-        )}
+      {/* Desktop: flex row with player columns; Mobile: flex col board-area */}
+      <div className="game-inner-layout">
 
-        {/* Turn timer */}
-        {hasTwoPlayers && !gameOver && (
-          <TurnTimer
-            timeLeft={typeof timeLeft === "number" ? timeLeft : TURN_SECONDS}
-            totalTime={TURN_SECONDS}
-            isMyTurn={isMyTurn}
-          />
-        )}
-
-        {/* Board */}
-        <Board
-          board={board}
-          winLine={gameOver ? (gameOver.winLine || null) : null}
-          myMark={myMark}
-          isMyTurn={isMyTurn}
-          isActive={isActive}
-          onCellClick={nakama.sendMove}
+        {/* Desktop-only left player column */}
+        <PlayerCard
+          username={myName}
+          mark={myMark}
+          isActive={isMyTurn && hasTwoPlayers}
+          tag="YOU"
         />
 
-        {/* Abandon button */}
-        <button
-          id="abandon-btn"
-          className="btn btn--danger btn--sm abandon-btn"
-          onClick={handleAbandon}
-        >
-          ABANDON
+        {/* Center: always visible */}
+        <div className="game-board-area">
+
+          {/* Turn pill */}
+          {hasTwoPlayers ? (
+            <div className={pillClass}>
+              {isMyTurn ? "▶ YOUR TURN" : "⏳ THEIR TURN"}
+            </div>
+          ) : (
+            <div className="game-turn-pill game-turn-pill--waiting">
+              Awaiting opponent
+              <span className="waiting-dots">
+                <span className="waiting-dot" />
+                <span className="waiting-dot" />
+                <span className="waiting-dot" />
+              </span>
+            </div>
+          )}
+
+          {/* Invite code banner */}
+          {inviteCode && isWaiting && (
+            <div id="invite-code-banner" className="game-invite-banner">
+              <div className="game-invite-label">ROOM CODE</div>
+              <div className="game-invite-code" onClick={handleCopyCode}>{inviteCode}</div>
+              <div className="invite-code-tap-hint">Tap to copy</div>
+            </div>
+          )}
+
+          {/* Board */}
+          <Board
+            board={board}
+            winLine={gameOver ? (gameOver.winLine || null) : null}
+            myMark={myMark}
+            isMyTurn={isMyTurn}
+            isActive={isActive}
+            onCellClick={nakama.sendMove}
+          />
+
+          {/* Timer */}
+          {hasTwoPlayers && !gameOver && (
+            <TurnTimer
+              timeLeft={typeof timeLeft === "number" ? timeLeft : TURN_SECONDS}
+              totalTime={TURN_SECONDS}
+              isMyTurn={isMyTurn}
+            />
+          )}
+
+        </div>
+
+        {/* Desktop-only right player column */}
+        <PlayerCard
+          username={opponentName}
+          mark={opponentMark}
+          isActive={!isMyTurn && hasTwoPlayers}
+          tag={isAiMatch ? "CPU" : undefined}
+        />
+
+      </div>
+
+      {/* Abandon button — above home bar */}
+      <div className="game-abandon-btn">
+        <button id="abandon-btn" className="btn btn--ghost btn--sm" onClick={handleAbandon}>
+          ← Leave Game
         </button>
       </div>
 
-      {/* Game over overlay */}
+      {/* Game over panel */}
       {gameOver && (
         <GameOverModal
           gameOver={gameOver}
@@ -151,6 +160,7 @@ export default function GameScreen({ nakama }) {
           onMainMenu={handleMainMenu}
         />
       )}
+
     </div>
   );
 }
