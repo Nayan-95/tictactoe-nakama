@@ -19,7 +19,11 @@ export function useNakama() {
   // Initialize the NakamaService singleton once on mount
   useEffect(function() {
     var host = import.meta.env.VITE_NAKAMA_HOST || "localhost";
-    var ssl  = import.meta.env.VITE_NAKAMA_SSL === "true" || false;
+    // var ssl  = import.meta.env.VITE_NAKAMA_SSL === "true" || false;
+    var envSsl = import.meta.env.VITE_NAKAMA_SSL;
+    var ssl    = envSsl !== undefined
+               ? envSsl === "true"
+               : window.location.protocol === "https:";  // ← auto-detects!
     var port = import.meta.env.VITE_NAKAMA_PORT || (ssl ? "443" : "7350");
     var key  = import.meta.env.VITE_NAKAMA_KEY  || "defaultkey";
     serviceRef.current = new NakamaService(host, port, ssl, key);
