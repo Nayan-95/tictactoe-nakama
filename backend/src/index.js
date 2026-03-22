@@ -1,445 +1,562 @@
 "use strict";
 
-var OP_CODE_MOVE = 1;
-var OP_CODE_STATE = 2;
-var OP_CODE_ERROR = 3;
-var OP_CODE_MATCH_OVER = 4;
+// ────────────────────────────────────────────────────────────────────────────
+// Constants
+// ────────────────────────────────────────────────────────────────────────────
 
-var TICK_RATE = 1;
-var WINNING_COMBINATIONS = [
-  [0, 1, 2],
-  [3, 4, 5],
-  [6, 7, 8],
-  [0, 3, 6],
-  [1, 4, 7],
-  [2, 5, 8],
-  [0, 4, 8],
-  [2, 4, 6],
+var MODULE_NAME  = "tictactoe";
+var AI_PLAYER_ID = "ai-bot-system";
+var AI_USERNAME  = "NeonBot";
+var TURN_SECONDS = 30;
+
+var Op = { MOVE: 1, STATE: 2, GAME_OVER: 3, TICK: 4, READY: 5 };
+
+var WIN_LINES = [
+  [0,1,2], [3,4,5], [6,7,8],   // rows
+  [0,3,6], [1,4,7], [2,5,8],   // columns
+  [0,4,8], [2,4,6],            // diagonals
 ];
 
-function createEmptyBoard() {
-  return ["", "", "", "", "", "", "", "", ""];
-}
+// ────────────────────────────────────────────────────────────────────────────
+// Pure Helper Functions (no Nakama API calls, no side effects)
+// ────────────────────────────────────────────────────────────────────────────
 
-function createMatchState(params) {
-  var players = [];
-  if (params && params.players && params.players.length) {
-    players = params.players.slice(0, 2);
-  }
-
-  var marks = {};
-  if (players.length > 0) {
-    marks[players[0]] = "X";
-  }
-  if (players.length > 1) {
-    marks[players[1]] = "Y";
-  }
-
-  return {
-    board: createEmptyBoard(),
-    currentTurn: players.length > 0 ? players[0] : null,
-    players: players,
-    presences: [],
-    marks: marks,
-    status: players.length === 2 ? "playing" : "waiting",
-    winner: null,
-  };
-}
-
-function cloneStateForBroadcast(state) {
-  return {
-    board: state.board.slice(0),
-    currentTurn: state.currentTurn,
-    players: state.players.slice(0),
-    marks: state.marks,
-    status: state.status,
-    winner: state.winner,
-  };
-}
-
-function toJson(value) {
-  return JSON.stringify(value);
-}
-
-function decodeBase64(input) {
-  var chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-  var output = "";
-  var buffer = 0;
-  var bits = 0;
-
-  for (var i = 0; i < input.length; i++) {
-    var char = input.charAt(i);
-
-    if (char === "=") {
-      break;
-    }
-
-    var value = chars.indexOf(char);
-    if (value === -1) {
-      continue;
-    }
-
-    buffer = (buffer << 6) | value;
-    bits += 6;
-
-    if (bits >= 8) {
-      bits -= 8;
-      output += String.fromCharCode((buffer >> bits) & 255);
+function getWinLine(board) {
+  for (var i = 0; i < WIN_LINES.length; i++) {
+    var a = WIN_LINES[i][0], b = WIN_LINES[i][1], c = WIN_LINES[i][2];
+    if (board[a] !== "" && board[a] === board[b] && board[a] === board[c]) {
+      return WIN_LINES[i];
     }
   }
+  return null;
+}
 
-  return output;
+function checkWinner(board) {
+  var line = getWinLine(board);
+  return line ? board[line[0]] : null;
+}
+
+function isBoardFull(board) {
+  for (var i = 0; i < 9; i++) {
+    if (board[i] === "") return false;
+  }
+  return true;
+}
+
+function minimax(board, isMaximizing, aiMark, humanMark, depth) {
+  var winner = checkWinner(board);
+  if (winner === aiMark)    return 10 - depth;
+  if (winner === humanMark) return depth - 10;
+  if (isBoardFull(board))  return 0;
+
+  var best = isMaximizing ? -100 : 100;
+  for (var i = 0; i < 9; i++) {
+    if (board[i] !== "") continue;
+    board[i] = isMaximizing ? aiMark : humanMark;
+    var score = minimax(board, !isMaximizing, aiMark, humanMark, depth + 1);
+    board[i] = "";
+    if (isMaximizing) { if (score > best) best = score; }
+    else              { if (score < best) best = score; }
+  }
+  return best;
+}
+
+function minimaxBestMove(board, aiMark, humanMark) {
+  var bestScore = -100;
+  var bestPos   = -1;
+  for (var i = 0; i < 9; i++) {
+    if (board[i] !== "") continue;
+    board[i] = aiMark;
+    var score = minimax(board, false, aiMark, humanMark, 0);
+    board[i] = "";
+    if (score > bestScore) { bestScore = score; bestPos = i; }
+  }
+  return bestPos;
+}
+
+function generateInviteCode(length) {
+  var chars  = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  var result = "";
+  for (var i = 0; i < length; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}
+
+function tryParseJson(raw) {
+  try { return JSON.parse(raw); } catch (e) { return null; }
 }
 
 function parseMovePayload(nk, rawData) {
   if (nk && typeof nk.binaryToString === "function") {
-    try {
-      return JSON.parse(nk.binaryToString(rawData));
-    } catch (binaryError) {
-      // Fall back to string-based parsing for older/runtime-specific payload shapes.
-    }
+    try { return JSON.parse(nk.binaryToString(rawData)); } catch (e) {}
   }
-
   if (typeof rawData === "string") {
-    try {
-      return JSON.parse(rawData);
-    } catch (jsonError) {
-      return JSON.parse(decodeBase64(rawData));
-    }
+    try { return JSON.parse(rawData); } catch (e) {}
   }
-
-  return JSON.parse(String(rawData));
-}
-
-function sendGameState(dispatcher, state, presences) {
-  if (!presences || presences.length === 0) {
-    return;
-  }
-
-  dispatcher.broadcastMessage(OP_CODE_STATE, toJson(cloneStateForBroadcast(state)), presences, null, true);
-}
-
-function sendError(dispatcher, presence, message) {
-  dispatcher.broadcastMessage(OP_CODE_ERROR, toJson({ message: message }), [presence], null, true);
-}
-
-function broadcastMatchOver(dispatcher, presences, winner, reason) {
-  if (!presences || presences.length === 0) {
-    return;
-  }
-
-  dispatcher.broadcastMessage(
-    OP_CODE_MATCH_OVER,
-    toJson({ winner: winner, reason: reason }),
-    presences,
-    null,
-    true
-  );
-}
-
-function findPresenceByUserId(presences, userId) {
-  for (var i = 0; i < presences.length; i++) {
-    if (presences[i].userId === userId) {
-      return presences[i];
-    }
-  }
-
   return null;
 }
 
-function findWinner(board, marks, players) {
-  for (var i = 0; i < WINNING_COMBINATIONS.length; i++) {
-    var combo = WINNING_COMBINATIONS[i];
-    var a = combo[0];
-    var b = combo[1];
-    var c = combo[2];
+// ────────────────────────────────────────────────────────────────────────────
+// State Factory
+// ────────────────────────────────────────────────────────────────────────────
 
-    if (board[a] !== "" && board[a] === board[b] && board[b] === board[c]) {
-      for (var p = 0; p < players.length; p++) {
-        var userId = players[p];
-        if (marks[userId] === board[a]) {
-          return userId;
+function createMatchState(inviteCode, isAiMatch) {
+  return {
+    board:      ["","","","","","","","",""],
+    marks:      {},
+    playerInfo: {},
+    players:    [],
+    presences:  {},
+    turn:       "",
+    turnTimer:  TURN_SECONDS,
+    winner:     null,
+    winLine:    null,
+    isDraw:     false,
+    gameOver:   false,
+    isAiMatch:  !!isAiMatch,
+    inviteCode: inviteCode || null,
+  };
+}
+
+function buildStatePayload(state) {
+  return JSON.stringify({
+    board:      state.board,
+    marks:      state.marks,
+    playerInfo: state.playerInfo,
+    players:    state.players,
+    turn:       state.turn,
+    turnTimer:  state.turnTimer,
+    gameOver:   state.gameOver,
+    isAiMatch:  state.isAiMatch,
+  });
+}
+
+function buildGameOverPayload(state, reason) {
+  return JSON.stringify({
+    winner:     state.winner,
+    winnerMark: state.winner ? (state.marks[state.winner] || "") : "",
+    reason:     reason,
+    board:      state.board,
+    winLine:    state.winLine,
+    playerInfo: state.playerInfo,
+  });
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Leaderboard Write Helper
+// ────────────────────────────────────────────────────────────────────────────
+
+function writeMatchResult(nk, logger, winnerId, loserId, isDraw, players) {
+  try {
+    if (isDraw) {
+      for (var i = 0; i < players.length; i++) {
+        if (players[i] !== AI_PLAYER_ID) {
+          nk.leaderboardRecordWrite("ttt_draws", players[i], "", 1, 0, {});
         }
       }
+      return;
     }
-  }
-
-  return null;
-}
-
-function isBoardFull(board) {
-  for (var i = 0; i < board.length; i++) {
-    if (board[i] === "") {
-      return false;
+    if (winnerId && winnerId !== AI_PLAYER_ID) {
+      nk.leaderboardRecordWrite("ttt_wins", winnerId, "", 1, 0, {});
     }
+    if (loserId && loserId !== AI_PLAYER_ID) {
+      nk.leaderboardRecordWrite("ttt_losses", loserId, "", 1, 0, {});
+    }
+  } catch (e) {
+    logger.error("Leaderboard write failed: " + e);
   }
-
-  return true;
 }
 
-function normalizeMatchedUsers(entries) {
-  var players = [];
+// ────────────────────────────────────────────────────────────────────────────
+// Game-Over Handler
+// ────────────────────────────────────────────────────────────────────────────
 
-  for (var i = 0; i < entries.length; i++) {
-    players.push(entries[i].presence.userId);
+function resolveGameOver(state, dispatcher, nk, logger, reason) {
+  state.gameOver = true;
+  state.winLine  = state.winner ? getWinLine(state.board) : null;
+
+  var playerIds = state.players;
+  var loserId   = state.winner
+    ? playerIds.filter(function(p) { return p !== state.winner; })[0] || ""
+    : "";
+
+  writeMatchResult(nk, logger, state.winner, loserId, state.isDraw, playerIds);
+
+  var presenceList = Object.keys(state.presences).map(function(k) { return state.presences[k]; });
+  if (presenceList.length > 0) {
+    dispatcher.broadcastMessage(Op.GAME_OVER, buildGameOverPayload(state, reason), presenceList, null, true);
   }
-
-  return players;
 }
 
-function matchmakerMatched(context, logger, nk, entries) {
-  if (!entries || entries.length !== 2) {
-    logger.warn("Expected exactly 2 matchmaker entries, got %v.", entries ? entries.length : 0);
-    return null;
-  }
+// ────────────────────────────────────────────────────────────────────────────
+// Match Handler Functions
+// ────────────────────────────────────────────────────────────────────────────
 
-  var playerIds = normalizeMatchedUsers(entries);
-  var params = {
-    players: playerIds,
-  };
-
-  var matchId = nk.matchCreate("tic_tac_toe", params);
-  logger.info("Created Tic-Tac-Toe match %v for players %v and %v.", matchId, playerIds[0], playerIds[1]);
-
-  return matchId;
-}
-
-// Clients can call this RPC first to enter Nakama's built-in matchmaker queue.
-function rpcFindMatch(context, logger, nk, payload) {
-  if (!context.userId) {
-    throw new Error("User must be authenticated.");
-  }
-
-  if (!context.sessionId) {
-    throw new Error("rpc_find_match must be called from an active socket session.");
-  }
-
-  // Add the caller to Nakama's built-in matchmaker so two players are paired automatically.
-  var ticket = nk.matchmakerAdd(context.sessionId, "*", 2, 2, {}, {});
-  return toJson({ ticket: ticket });
-}
-
-// Every authoritative match gets its own isolated board and player mapping.
 function matchInit(context, logger, nk, params) {
-  var state = createMatchState(params || {});
+  var inviteCode = (params && params.inviteCode) ? params.inviteCode : null;
+  var isAiMatch  = !!(params && params.isAiMatch);
+  var state      = createMatchState(inviteCode, isAiMatch);
 
-  logger.info("Initializing Tic-Tac-Toe match with players: %v", toJson(state.players));
-
-  return {
-    state: state,
-    tickRate: TICK_RATE,
-    label: "tic_tac_toe",
-  };
+  logger.info("Match initialized. AI=" + isAiMatch + " Code=" + inviteCode);
+  return { state: state, tickRate: 1, label: MODULE_NAME };
 }
 
 function matchJoinAttempt(context, logger, nk, dispatcher, tick, state, presence, metadata) {
   if (state.players.length >= 2 && state.players.indexOf(presence.userId) === -1) {
-    return {
-      state: state,
-      accept: false,
-      rejectMessage: "Match is full.",
-    };
+    return { state: state, accept: false, rejectMessage: "Match is full." };
   }
-
-  return {
-    state: state,
-    accept: true,
-  };
+  return { state: state, accept: true };
 }
 
 function matchJoin(context, logger, nk, dispatcher, tick, state, presences) {
   for (var i = 0; i < presences.length; i++) {
-    var presence = presences[i];
-    var alreadyTracked = false;
-
-    for (var j = 0; j < state.presences.length; j++) {
-      if (state.presences[j].userId === presence.userId && state.presences[j].sessionId === presence.sessionId) {
-        alreadyTracked = true;
-        break;
-      }
+    var p = presences[i];
+    if (state.players.indexOf(p.userId) === -1) {
+      state.players.push(p.userId);
+      state.playerInfo[p.userId] = p.username || ("Player " + state.players.length);
     }
-
-    if (!alreadyTracked) {
-      state.presences.push(presence);
-    }
-
-    if (state.players.indexOf(presence.userId) === -1 && state.players.length < 2) {
-      state.players.push(presence.userId);
-    }
+    state.presences[p.userId] = p;
+    logger.info("Player joined: " + p.userId + " (" + p.username + ")");
   }
 
-  if (state.players.length > 0 && !state.marks[state.players[0]]) {
+  // Assign marks when 2 real players are present
+  if (state.players.length === 2 && !state.marks[state.players[0]]) {
     state.marks[state.players[0]] = "X";
-  }
-  if (state.players.length > 1 && !state.marks[state.players[1]]) {
-    state.marks[state.players[1]] = "Y";
+    state.marks[state.players[1]] = "O";
+    state.turn      = state.players[0];
+    state.turnTimer = TURN_SECONDS;
+
+    var presenceList = Object.keys(state.presences).map(function(k) { return state.presences[k]; });
+    dispatcher.broadcastMessage(Op.STATE, buildStatePayload(state), presenceList, null, true);
+    logger.info("Game started. X=" + state.players[0] + " O=" + state.players[1]);
   }
 
-  if (state.players.length === 2 && state.status === "waiting") {
-    state.status = "playing";
-    state.currentTurn = state.players[0];
-  }
-
-  sendGameState(dispatcher, state, state.presences);
-
-  return {
-    state: state,
-  };
+  return { state: state };
 }
 
 function matchLeave(context, logger, nk, dispatcher, tick, state, presences) {
-  if (state.presences) {
-    for (var p = 0; p < presences.length; p++) {
-      var nextPresences = [];
-      for (var j = 0; j < state.presences.length; j++) {
-        if (
-          state.presences[j].userId !== presences[p].userId ||
-          state.presences[j].sessionId !== presences[p].sessionId
-        ) {
-          nextPresences.push(state.presences[j]);
-        }
-      }
-      state.presences = nextPresences;
+  for (var i = 0; i < presences.length; i++) {
+    var leaverId = presences[i].userId;
+    logger.info("Player left: " + leaverId);
+    delete state.presences[leaverId];
+
+    if (!state.gameOver && state.players.length === 2) {
+      state.winner = state.players.filter(function(p) { return p !== leaverId; })[0] || null;
+      resolveGameOver(state, dispatcher, nk, logger, "opponent_left");
     }
+
+    state.players = state.players.filter(function(p) { return p !== leaverId; });
   }
 
-  if (state.status !== "finished" && presences && presences.length > 0) {
-    var leavingUserId = presences[0].userId;
-    var winner = null;
-
-    for (var i = 0; i < state.players.length; i++) {
-      if (state.players[i] !== leavingUserId) {
-        winner = state.players[i];
-        break;
-      }
-    }
-
-    state.status = "finished";
-    state.winner = winner;
-
-    var remainingPresence = winner ? findPresenceByUserId(state.presences || [], winner) : null;
-    if (remainingPresence) {
-      sendGameState(dispatcher, state, [remainingPresence]);
-      broadcastMatchOver(dispatcher, [remainingPresence], winner, "opponent_left");
-    }
-  }
-
-  return {
-    state: state,
-  };
+  return { state: state };
 }
 
+/**
+ * Server-Authoritative Core:
+ * ALL game state transitions happen here — never on the client.
+ * The client is a dumb renderer: it sends only a position index (0-8).
+ * Every move is validated server-side before being applied.
+ * Clients cannot manipulate board state, turn order, or scores.
+ */
 function matchLoop(context, logger, nk, dispatcher, tick, state, messages) {
+  // Terminate finished matches (frees Nakama resources)
+  if (state.gameOver) return null;
+
+  // Wait silently for a second player
+  if (state.players.length < 2) {
+    // AI match: inject the bot after 1 tick if only 1 human is present
+    if (state.isAiMatch && state.players.length === 1 && tick === 1) {
+      state.players.push(AI_PLAYER_ID);
+      state.playerInfo[AI_PLAYER_ID] = AI_USERNAME;
+      state.marks[state.players[0]] = "X";
+      state.marks[AI_PLAYER_ID]     = "O";
+      state.turn      = state.players[0]; // human goes first
+      state.turnTimer = TURN_SECONDS;
+
+      var aiJoinPresences = Object.keys(state.presences).map(function(k) { return state.presences[k]; });
+      dispatcher.broadcastMessage(Op.STATE, buildStatePayload(state), aiJoinPresences, null, true);
+      logger.info("AI bot injected into match.");
+    }
+    return { state: state };
+  }
+
+  // ── Process incoming player moves ─────────────────────────────────────────
   for (var i = 0; i < messages.length; i++) {
-    var message = messages[i];
+    var msg = messages[i];
+    if (msg.opCode !== Op.MOVE) continue;
 
-    if (message.opCode !== OP_CODE_MOVE) {
+    var senderId = msg.sender.userId;
+
+    // Server-authoritative: validate turn ownership
+    if (senderId !== state.turn) {
+      logger.warn("Out-of-turn move rejected from: " + senderId);
       continue;
     }
 
-    var userId = message.sender.userId;
-    var payload;
-
-    try {
-      payload = parseMovePayload(nk, message.data);
-    } catch (error) {
-      logger.error("Failed to parse move payload: %v", message.data);
-      sendError(dispatcher, message.sender, "Invalid payload.");
+    var data = parseMovePayload(nk, msg.data);
+    if (!data || typeof data.position !== "number") {
+      logger.warn("Invalid move payload from: " + senderId);
       continue;
     }
 
-    if (!payload || typeof payload.position !== "number") {
-      sendError(dispatcher, message.sender, "Position must be a number between 0 and 8.");
+    var pos = data.position;
+
+    // Server-authoritative: validate position bounds and empty cell
+    if (pos < 0 || pos > 8 || pos % 1 !== 0 || state.board[pos] !== "") {
+      logger.warn("Invalid position " + pos + " from: " + senderId);
       continue;
     }
 
-    var position = payload.position;
-    if (position < 0 || position > 8 || position % 1 !== 0) {
-      sendError(dispatcher, message.sender, "Position must be an integer between 0 and 8.");
-      continue;
-    }
+    // Apply move
+    state.board[pos] = state.marks[senderId];
+    state.turnTimer  = TURN_SECONDS;
 
-    if (state.status !== "playing") {
-      sendError(dispatcher, message.sender, "Game is not active.");
-      continue;
-    }
-
-    if (state.players.indexOf(userId) === -1) {
-      sendError(dispatcher, message.sender, "You are not part of this match.");
-      continue;
-    }
-
-    if (state.currentTurn !== userId) {
-      sendError(dispatcher, message.sender, "It is not your turn.");
-      continue;
-    }
-
-    if (state.board[position] !== "") {
-      sendError(dispatcher, message.sender, "That position is already occupied.");
-      continue;
-    }
-
-    // Apply the move only after all turn/order/state checks pass on the server.
-    state.board[position] = state.marks[userId];
-
-    var winner = findWinner(state.board, state.marks, state.players);
-    if (winner) {
-      state.status = "finished";
-      state.winner = winner;
-      sendGameState(dispatcher, state, state.presences || []);
-      broadcastMatchOver(dispatcher, state.presences || [], winner, "win");
-      continue;
+    var winMark = checkWinner(state.board);
+    if (winMark) {
+      state.winner = Object.keys(state.marks).filter(function(id) {
+        return state.marks[id] === winMark;
+      })[0] || null;
+      resolveGameOver(state, dispatcher, nk, logger, "win");
+      return null;
     }
 
     if (isBoardFull(state.board)) {
-      state.status = "finished";
-      state.winner = null;
-      sendGameState(dispatcher, state, state.presences || []);
-      broadcastMatchOver(dispatcher, state.presences || [], null, "draw");
-      continue;
+      state.isDraw = true;
+      resolveGameOver(state, dispatcher, nk, logger, "draw");
+      return null;
     }
 
-    state.currentTurn = state.players[0] === userId ? state.players[1] : state.players[0];
-    sendGameState(dispatcher, state, state.presences || []);
+    // Switch turn
+    state.turn = state.players.filter(function(p) { return p !== senderId; })[0] || "";
+    var pl = Object.keys(state.presences).map(function(k) { return state.presences[k]; });
+    dispatcher.broadcastMessage(Op.STATE, buildStatePayload(state), pl, null, true);
   }
 
-  return {
-    state: state,
-  };
+  // ── AI move (fires 1 tick after it becomes the AI's turn) ─────────────────
+  if (state.isAiMatch && state.turn === AI_PLAYER_ID && !state.gameOver) {
+    // 1-tick delay so the human's move visually lands before the AI responds
+    if (state.turnTimer === TURN_SECONDS - 1) {
+      var humanId   = state.players.filter(function(p) { return p !== AI_PLAYER_ID; })[0];
+      var aiMark    = state.marks[AI_PLAYER_ID];
+      var humanMark = state.marks[humanId];
+      var bestPos   = minimaxBestMove(state.board.slice(), aiMark, humanMark);
+
+      if (bestPos !== -1) {
+        state.board[bestPos] = aiMark;
+        state.turnTimer      = TURN_SECONDS;
+
+        var winMarkAi = checkWinner(state.board);
+        if (winMarkAi) {
+          state.winner = AI_PLAYER_ID;
+          resolveGameOver(state, dispatcher, nk, logger, "win");
+          return null;
+        }
+        if (isBoardFull(state.board)) {
+          state.isDraw = true;
+          resolveGameOver(state, dispatcher, nk, logger, "draw");
+          return null;
+        }
+
+        state.turn = humanId;
+        var pl2 = Object.keys(state.presences).map(function(k) { return state.presences[k]; });
+        dispatcher.broadcastMessage(Op.STATE, buildStatePayload(state), pl2, null, true);
+      }
+    }
+  }
+
+  // ── Turn timer countdown (runs every tick = every second) ─────────────────
+  if (state.turn && state.players.length === 2 && !state.gameOver) {
+    state.turnTimer--;
+
+    var pl3 = Object.keys(state.presences).map(function(k) { return state.presences[k]; });
+    if (pl3.length > 0) {
+      dispatcher.broadcastMessage(Op.TICK, JSON.stringify({
+        turn:     state.turn,
+        timeLeft: state.turnTimer,
+      }), pl3, null, true);
+    }
+
+    if (state.turnTimer <= 0) {
+      // The player whose turn it is loses on timeout
+      var timerId = state.turn;
+      state.winner = state.players.filter(function(p) { return p !== timerId; })[0] || null;
+      resolveGameOver(state, dispatcher, nk, logger, "timeout");
+      return null;
+    }
+  }
+
+  return { state: state };
 }
 
 function matchTerminate(context, logger, nk, dispatcher, tick, state, graceSeconds) {
-  if (state.presences && state.presences.length > 0 && state.status !== "finished") {
-    broadcastMatchOver(dispatcher, state.presences, state.winner, "opponent_left");
+  logger.info("Match terminating. Grace seconds: " + graceSeconds);
+  return { state: state };
+}
+
+function matchSignal(context, logger, nk, dispatcher, tick, state, data) {
+  return { state: state, data: "" };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// RPC Functions
+// ────────────────────────────────────────────────────────────────────────────
+
+function rpcCreateMatch(context, logger, nk, payload) {
+  var matchId = nk.matchCreate(MODULE_NAME, {});
+  logger.info("Match created: " + matchId);
+  return JSON.stringify({ matchId: matchId });
+}
+
+// Finds an open public match (fewer than 2 players) or creates a fresh one.
+function rpcFindMatch(context, logger, nk, payload) {
+  try {
+    var matches = nk.matchList(10, true, MODULE_NAME, null, 1, "");
+    for (var i = 0; i < matches.length; i++) {
+      if (matches[i].size < 2) {
+        logger.info("Found open match: " + matches[i].matchId);
+        return JSON.stringify({ matchId: matches[i].matchId });
+      }
+    }
+  } catch (e) {
+    logger.warn("matchList error: " + e);
+  }
+  var matchId = nk.matchCreate(MODULE_NAME, {});
+  logger.info("Created new match via rpcFindMatch: " + matchId);
+  return JSON.stringify({ matchId: matchId });
+}
+
+// Creates a private match and stores the invite code in Nakama storage.
+// Uses userId "" (system) so any user can read the record by code.
+function rpcCreatePrivateMatch(context, logger, nk, payload) {
+  var code    = generateInviteCode(6);
+  var matchId = nk.matchCreate(MODULE_NAME, { inviteCode: code });
+
+  nk.storageWrite([{
+    collection:      "private_matches",
+    key:             code,
+    userId:          "",           // system record — readable by anyone who knows the key
+    value:           { matchId: matchId },
+    permissionRead:  2,            // public read
+    permissionWrite: 1,            // owner write
+  }]);
+
+  logger.info("Private match created. Code=" + code + " Match=" + matchId);
+  return JSON.stringify({ matchId: matchId, inviteCode: code });
+}
+
+function rpcJoinByCode(context, logger, nk, payload) {
+  var data = tryParseJson(payload);
+  if (!data || !data.code) {
+    return JSON.stringify({ error: "Missing invite code." });
   }
 
-  logger.info("Terminating Tic-Tac-Toe match.");
+  var code = data.code.toUpperCase().trim();
+  try {
+    var records = nk.storageRead([{
+      collection: "private_matches",
+      key:        code,
+      userId:     "",   // matches the system-level write in rpcCreatePrivateMatch
+    }]);
 
-  return {
-    state: state,
-  };
+    if (!records || records.length === 0) {
+      return JSON.stringify({ error: "Invalid or expired invite code." });
+    }
+
+    var matchId = records[0].value && records[0].value.matchId;
+    if (!matchId) return JSON.stringify({ error: "Match not found for this code." });
+
+    logger.info("Join by code " + code + " -> " + matchId);
+    return JSON.stringify({ matchId: matchId });
+  } catch (e) {
+    logger.error("rpcJoinByCode error: " + e);
+    return JSON.stringify({ error: "Invalid or expired invite code." });
+  }
 }
-function matchSignal(context, logger, nk, dispatcher, tick, state, data) {
-  logger.debug("Match signal received: %v", data);
-  return {
-    state: state,
-    data: ""
-  };
+
+function rpcCreateAiMatch(context, logger, nk, payload) {
+  var matchId = nk.matchCreate(MODULE_NAME, { isAiMatch: true });
+  logger.info("AI match created: " + matchId);
+  return JSON.stringify({ matchId: matchId });
 }
+
+function rpcGetLeaderboard(context, logger, nk, payload) {
+  try {
+    var result  = nk.leaderboardRecordsList("ttt_wins", [], 10, null, 0);
+    var records = (result.records || []).map(function(r) {
+      return {
+        ownerId:  r.ownerId,
+        username: r.username || "Unknown",
+        score:    r.score    || 0,
+        rank:     r.rank     || 0,
+      };
+    });
+    return JSON.stringify({ records: records });
+  } catch (e) {
+    logger.error("rpcGetLeaderboard error: " + e);
+    return JSON.stringify({ records: [] });
+  }
+}
+
+function rpcGetMyStats(context, logger, nk, payload) {
+  var stats  = { wins: 0, losses: 0, draws: 0 };
+  var userId = context.userId;
+
+  var boards = [
+    { name: "ttt_wins",   key: "wins"   },
+    { name: "ttt_losses", key: "losses" },
+    { name: "ttt_draws",  key: "draws"  },
+  ];
+
+  for (var i = 0; i < boards.length; i++) {
+    try {
+      var result = nk.leaderboardRecordsList(boards[i].name, [userId], 1, null, 0);
+      if (result.ownerRecords && result.ownerRecords.length > 0) {
+        stats[boards[i].key] = result.ownerRecords[0].score || 0;
+      }
+    } catch (e) {
+      logger.warn("Stats fetch failed for " + boards[i].name + ": " + e);
+    }
+  }
+
+  return JSON.stringify(stats);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// InitModule — Entry point called by Nakama on load
+// ────────────────────────────────────────────────────────────────────────────
 
 function InitModule(context, logger, nk, initializer) {
-  initializer.registerRpc("find_match", rpcFindMatch);
-  initializer.registerMatchmakerMatched(matchmakerMatched);
+  // Create leaderboards (idempotent — safe to re-run on restart)
+  var leaderboards = ["ttt_wins", "ttt_losses", "ttt_draws"];
+  for (var i = 0; i < leaderboards.length; i++) {
+    try {
+      nk.leaderboardCreate(leaderboards[i], false, "desc", "incr", "", false);
+      logger.info("Leaderboard ready: " + leaderboards[i]);
+    } catch (e) {
+      logger.info("Leaderboard already exists: " + leaderboards[i]);
+    }
+  }
 
-  initializer.registerMatch("tic_tac_toe", {
-    matchInit: matchInit,
+  // Register all RPC endpoints
+  initializer.registerRpc("rpc_create_match",         rpcCreateMatch);
+  initializer.registerRpc("rpc_find_match",           rpcFindMatch);
+  initializer.registerRpc("rpc_create_private_match", rpcCreatePrivateMatch);
+  initializer.registerRpc("rpc_join_by_code",         rpcJoinByCode);
+  initializer.registerRpc("rpc_create_ai_match",      rpcCreateAiMatch);
+  initializer.registerRpc("rpc_get_leaderboard",      rpcGetLeaderboard);
+  initializer.registerRpc("rpc_get_my_stats",         rpcGetMyStats);
+
+  // Register the authoritative match handler
+  initializer.registerMatch(MODULE_NAME, {
+    matchInit:        matchInit,
     matchJoinAttempt: matchJoinAttempt,
-    matchJoin: matchJoin,
-    matchLeave: matchLeave,
-    matchLoop: matchLoop,
-    matchTerminate: matchTerminate,
-    matchSignal: matchSignal,
+    matchJoin:        matchJoin,
+    matchLeave:       matchLeave,
+    matchLoop:        matchLoop,
+    matchTerminate:   matchTerminate,
+    matchSignal:      matchSignal,
   });
 
-  logger.info("Tic-Tac-Toe Nakama module loaded.");
+  logger.info("Tictactoe module loaded successfully.");
 }
