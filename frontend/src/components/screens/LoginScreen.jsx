@@ -1,20 +1,20 @@
 import { useState } from "react";
 
 export default function LoginScreen({ nakama }) {
-  var [username,   setUsername]   = useState("");
-  var [loading,    setLoading]    = useState(false);
+  var [username, setUsername] = useState("");
+  var [loading, setLoading] = useState(false);
   var [localError, setLocalError] = useState("");
 
   async function handleSubmit(e) {
     e.preventDefault();
     var trimmed = username.trim();
     setLocalError("");
-    if (trimmed.length < 2)  { setLocalError("Handle must be at least 2 characters."); return; }
+    if (trimmed.length < 2) { setLocalError("Handle must be at least 2 characters."); return; }
     if (trimmed.length > 20) { setLocalError("Handle must be 20 characters or fewer."); return; }
     setLoading(true);
-    try   { await nakama.login(trimmed); }
+    try { await nakama.login(trimmed); }
     catch (err) { setLocalError((err && err.message) || "Connection failed. Try again."); }
-    finally     { setLoading(false); }
+    finally { setLoading(false); }
   }
 
   return (
@@ -46,7 +46,7 @@ export default function LoginScreen({ nakama }) {
                   className="field-input"
                   type="text"
                   value={username}
-                  onChange={function(e) { setUsername(e.target.value); setLocalError(""); }}
+                  onChange={function (e) { setUsername(e.target.value); setLocalError(""); }}
                   placeholder="Nova, Specter, Jinx..."
                   maxLength={20}
                   autoComplete="off"
@@ -65,7 +65,7 @@ export default function LoginScreen({ nakama }) {
                 className="btn btn--amber btn--full"
                 disabled={loading}
               >
-                {loading ? <><span className="spinner" /> LOADING...</> : "INSERT COIN"}
+                {loading ? <><span className="spinner" /> LOADING...</> : "START GAME"}
               </button>
             </div>
           </form>
@@ -73,7 +73,7 @@ export default function LoginScreen({ nakama }) {
           <div className="login-rules-wrap">
             <div className="rules-divider" />
             <ul className="rules-items">
-              <li>Get three in a row — horizontal, vertical, or diagonal</li>
+              <li>Get three in a row horizontal, vertical, or diagonal</li>
               <li>X always goes first; turns alternate automatically</li>
               <li>You have <strong>30 seconds</strong> per turn or you forfeit</li>
               <li>Wins, losses and draws appear on the global leaderboard</li>
